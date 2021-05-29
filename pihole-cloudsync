@@ -1,5 +1,9 @@
 #!/bin/bash
 
+echo "Configuring SSH keys for git..."
+eval $(ssh-agent -s) #&> /dev/null
+ssh-add /path/to/ssh/key #> /dev/null 2>&1
+
 ###########################################################################
 # pihole-cloudsync
 # Helper script to keep multiple Pi-holes' lists synchronized via Git
@@ -32,7 +36,7 @@ update='December 26, 2020'
 # Project Home: https://github.com/stevejenkins/pihole-cloudsync
 ###########################################################################
 # CONSTANTS
-personal_git_dir='/usr/local/bin/my-pihole-lists'
+personal_git_dir='/var/pihole-cloudsync/syncdata'
 pihole_dir='/etc/pihole'
 gravity_db='/etc/pihole/gravity.db'
 dnsmasq_dir='/etc/dnsmasq.d/'
@@ -40,6 +44,7 @@ ad_list='adlist.csv'
 custom_list='custom.list'
 domain_list='domainlist.csv'
 cname_list='05-pihole-custom-cname.conf'
+other_dnsmasq_files=( '20-customdns.conf' )
 ###########################################################################
 # SHOULDN'T NEED TO EDIT BELOW THIS LINE
 
@@ -57,10 +62,16 @@ push_initialize () {
 	# Verify Custom and CNAME lists exist
 	$SUDO touch $custom_list
 	$SUDO touch $dnsmasq_dir/$cname_list
+	for f in ${other_dnsmasq_files[@]}; do
+		$SUDO touch $dnsmasq_dir/$f
+	done
 
 	# Copy local Custom and CNAME lists to local Git repo
-	$SUDO cp $custom_list $personal_git_dir
-	$SUDO cp $dnsmasq_dir/$cname_list $personal_git_dir
+	$SUDO cp -f $custom_list $personal_git_dir
+	$SUDO cp -f $dnsmasq_dir/$cname_list $personal_git_dir
+	for f in ${other_dnsmasq_files[@]}; do
+                $SUDO cp -f $dnsmasq_dir/$f $personal_git_dir
+        done
 
 	# Go to local Git repo directory
 	cd $personal_git_dir || exit
@@ -88,8 +99,11 @@ pull_initialize () {
 	$SUDO service pihole-FTL stop
 
 	# Overwrite local files
-	$SUDO cp $custom_list $pihole_dir
-	$SUDO cp $cname_list $dnsmasq_dir
+	$SUDO cp -f $custom_list $pihole_dir
+	$SUDO cp -f $cname_list $dnsmasq_dir
+	for f in ${other_dnsmasq_files[@]}; do
+		$SUDO cp -f $f $dnsmasq_dir
+	done
 
 	# Overwrite local database tables
 	$SUDO sqlite3 $gravity_db "DROP TABLE adlist;"
@@ -109,8 +123,11 @@ push () {
 	cd $pihole_dir || exit
 
         # Copy local Custom and CNAME lists to local Git repo
-        $SUDO cp $custom_list $personal_git_dir
-        $SUDO cp $dnsmasq_dir/$cname_list $personal_git_dir
+        $SUDO cp -f $custom_list $personal_git_dir
+        $SUDO cp -f $dnsmasq_dir/$cname_list $personal_git_dir
+	for f in ${other_dnsmasq_files[@]}; do
+		$SUDO cp -f $dnsmasq_dir/$f $personal_git_dir
+	done
 
 	# Go to local Git repo directory
         cd $personal_git_dir || exit
@@ -151,8 +168,11 @@ pull () {
                 $SUDO git fetch --all -q
 		$SUDO git reset --hard origin/master -q
                 $SUDO service pihole-FTL stop
-                $SUDO cp $custom_list $pihole_dir
-                $SUDO cp $cname_list $dnsmasq_dir
+                $SUDO cp -f $custom_list $pihole_dir
+                $SUDO cp -f $cname_list $dnsmasq_dir
+	        for f in ${other_dnsmasq_files[@]}; do
+        	        $SUDO cp -fv $f $dnsmasq_dir
+	        done
                 $SUDO sqlite3 $gravity_db "DROP TABLE adlist;"
                 $SUDO sqlite3 $gravity_db -header -csv ".import adlist.csv adlist"
                 $SUDO sqlite3 $gravity_db "DROP TABLE domainlist;"
@@ -162,7 +182,7 @@ pull () {
                 exit 0
         else
                 echo 'Local Pi-hole lists match remote Git repo. No further action required.';
-                exit 0
+		exit 0
         fi
 }
 ###########################################################################
@@ -232,3 +252,5 @@ EOF
 	exit 1
     fi
 done
+
+kill $SSH_AGENT_PID #> /dev/null 2>&1
